@@ -3,6 +3,17 @@
 A disk usage viewer for macOS: see which folders fill your disk and what is safe to delete.
 Native SwiftUI + AppKit, no dependencies.
 
+![DirectStat showing a folder tree sorted by size, cleanup suggestions, and a treemap](docs/screenshot.png)
+
+## Why
+
+When the disk is full, you need answers to two questions: *which folders are big*, and *what can I safely delete*.
+DirectStat answers both in one window: a folder tree sorted by size, a treemap, and file types side by side,
+plus a **Cleanup** list that recognizes caches and build output and says which are safe to delete.
+It also shows how much used space no folder accounts for. Free, open source, and native on Apple Silicon.
+
+## Features
+
 - **Folder tree** sorted by size, with a "% of parent" bar, size and item count
 - **Treemap** with cushion shading, colored by file type. Click to select, hover for path and size
 - **Cleanup** tab: finds known space hogs (Xcode DerivedData, caches, `node_modules`,
