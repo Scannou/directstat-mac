@@ -309,16 +309,26 @@ struct HogRow: View {
                     }
                     .buttonStyle(.link)
                     .font(.caption)
+                    if let common = commonFolder {
+                        Text("in \(common)").font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                            .help(common)
+                    }
                 } else if let n = hog.nodes.first {
-                    Text(Paths.display(n.path)).font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.head)
+                    let path = Paths.display(n.path)
+                    Text(path).font(.caption).foregroundStyle(.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                        .help(path)
                 }
             }
             Text(hog.detail).font(.caption).foregroundStyle(.secondary)
             if expanded {
                 ForEach(Array(hog.nodes.prefix(100).enumerated()), id: \.offset) { _, n in
+                    let path = Paths.display(n.path)
                     HStack {
-                        Text(Paths.display(n.path)).lineLimit(1).truncationMode(.head)
+                        // Cut in the middle: the start says where, the end which project.
+                        Text(path).lineLimit(1).truncationMode(.middle)
+                            .help(path)
                         Spacer()
                         Text(Fmt.bytes(n.size)).monospacedDigit()
                     }
@@ -335,6 +345,10 @@ struct HogRow: View {
         .contextMenu {
             if hog.nodes.count == 1, let n = hog.nodes.first { menu(for: .dir(n)) }
         }
+    }
+
+    private var commonFolder: String? {
+        Paths.commonFolder(hog.nodes.map { Paths.display($0.path) })
     }
 
     @ViewBuilder private func menu(for ref: ItemRef) -> some View {

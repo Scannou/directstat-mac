@@ -212,6 +212,17 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(nas.contains("/Volumes/NAS"))
     }
 
+    func testCommonFolder() {
+        XCTAssertEqual(Paths.commonFolder(["~/git_repos/a/node_modules", "~/git_repos/b/c/node_modules"]),
+                       "~/git_repos")
+        XCTAssertNil(Paths.commonFolder(["~/git_repos/a/node_modules", "~/Documents/x/node_modules"]),
+                     "only ~ in common")
+        XCTAssertNil(Paths.commonFolder(["/opt/a", "/usr/b"]), "only / in common")
+        XCTAssertEqual(Paths.commonFolder(["~/p/node_modules"]), "~/p")
+        XCTAssertEqual(Paths.commonFolder(["~/ab/x", "~/abc/y"]), nil, "compares whole folder names")
+        XCTAssertEqual(Paths.commonFolder([]), nil)
+    }
+
     func testDisplayPaths() {
         let home = "/Users/x"
         XCTAssertEqual(Paths.display("/System/Volumes/Data/Users/x/Downloads", home: home), "~/Downloads")

@@ -333,6 +333,23 @@ public enum Paths {
         return path
     }
 
+    /// The deepest folder that contains every path, or nil if that is only
+    /// "/" or "~" (too broad to be worth showing).
+    public static func commonFolder(_ paths: [String]) -> String? {
+        guard var common = paths.first?.split(separator: "/", omittingEmptySubsequences: false)
+        else { return nil }
+        for p in paths.dropFirst() {
+            let parts = p.split(separator: "/", omittingEmptySubsequences: false)
+            var n = 0
+            while n < common.count, n < parts.count, common[n] == parts[n] { n += 1 }
+            common = Array(common.prefix(n))
+        }
+        // A single path is its own common prefix; report the folder holding it.
+        if paths.count == 1 { common = Array(common.dropLast()) }
+        let folder = common.joined(separator: "/")
+        return ["", "/", "~"].contains(folder) ? nil : folder
+    }
+
     /// Short form for display: no Data-volume prefix, home folder as "~".
     public static func display(_ path: String, home: String = NSHomeDirectory()) -> String {
         let p = withoutDataVolume(path)
