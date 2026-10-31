@@ -25,6 +25,12 @@ It also shows how much used space no folder accounts for. Free, open source, and
 - Move to Trash or delete permanently, with the tree and treemap updated in place
 - Fast parallel scanner (`getattrlistbulk`), sizes match `du` (allocated bytes, hard links counted once)
 
+## Install
+
+Download the latest `DirectStat-x.y.z.dmg` from [Releases](../../releases), open it, and drag DirectStat onto
+the Applications folder. The app isn't notarized, so the first launch is blocked: open
+**System Settings › Privacy & Security**, scroll down, and click **Open Anyway**.
+
 ## Build and run
 
 ```sh
@@ -36,6 +42,18 @@ Requires macOS 15 and Xcode (or the Swift 6 toolchain).
 
 To scan everything, add `build/DirectStat.app` in **System Settings › Privacy & Security › Full Disk Access**.
 The app is ad-hoc signed, so macOS may ask again after a rebuild.
+
+## Releasing
+
+Push a version tag. GitHub Actions runs the tests, builds a universal (Apple Silicon + Intel) app,
+and publishes a release with `DirectStat-x.y.z.dmg` and its SHA-256:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+To build the same disk image locally: `./scripts/package-release.sh 0.2.0` (output in `dist/`).
 
 ## Command line
 

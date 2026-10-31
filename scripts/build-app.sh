@@ -1,10 +1,24 @@
 #!/bin/bash
 # Builds build/DirectStat.app (release, ad-hoc signed).
+#
+# Environment:
+#   VERSION=1.2.0   app version (default: latest v* tag, or 0.0.0)
+#   BUILD_NUMBER=42 build number (default: number of commits)
+#   UNIVERSAL=1     build for both Apple Silicon and Intel (slower)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-swift build -c release --product DirectStat
-BIN="$(swift build -c release --show-bin-path)/DirectStat"
+VERSION="${VERSION:-$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
+VERSION="${VERSION:-0.0.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
+
+ARCH_FLAGS=()
+if [ "${UNIVERSAL:-0}" = "1" ]; then
+    ARCH_FLAGS=(--arch arm64 --arch x86_64)
+fi
+
+swift build -c release "${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}" --product DirectStat
+BIN="$(swift build -c release "${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}" --show-bin-path)/DirectStat"
 APP="build/DirectStat.app"
 
 rm -rf "$APP"
@@ -23,8 +37,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleExecutable</key><string>DirectStat</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
-    <key>CFBundleShortVersionString</key><string>0.1.0</string>
-    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleShortVersionString</key><string>$VERSION</string>
+    <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
     <key>LSMinimumSystemVersion</key><string>15.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
     <key>NSHighResolutionCapable</key><true/>
@@ -33,4 +47,4 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 PLIST
 
 codesign --force --sign - "$APP"
-echo "Built $APP"
+echo "Built $APP (version $VERSION, build $BUILD_NUMBER, $(lipo -archs "$APP/Contents/MacOS/DirectStat"))"
