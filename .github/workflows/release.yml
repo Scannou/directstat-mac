@@ -13,9 +13,13 @@ jobs:
   release:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      # Pinned to a commit, not a tag that can move: v4.4.0.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           fetch-depth: 0
+          # Don't leave the write token in .git/config while tests and the
+          # build run; only the publish step gets it.
+          persist-credentials: false
 
       - name: Toolchain
         run: swift --version

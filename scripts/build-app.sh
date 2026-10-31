@@ -11,6 +11,15 @@ cd "$(dirname "$0")/.."
 VERSION="${VERSION:-$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
 VERSION="${VERSION:-0.0.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
+# Both go into Info.plist as-is, so only allow plain numbers.
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "VERSION must look like 1.2.0, got: $VERSION" >&2
+    exit 1
+fi
+if ! [[ "$BUILD_NUMBER" =~ ^[0-9]+$ ]]; then
+    echo "BUILD_NUMBER must be a whole number, got: $BUILD_NUMBER" >&2
+    exit 1
+fi
 
 ARCH_FLAGS=()
 if [ "${UNIVERSAL:-0}" = "1" ]; then
@@ -46,5 +55,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-codesign --force --sign - "$APP"
+# Hardened runtime: the app has Full Disk Access, so macOS must refuse to
+# load code injected through DYLD_INSERT_LIBRARIES and similar.
+codesign --force --options runtime --sign - "$APP"
 echo "Built $APP (version $VERSION, build $BUILD_NUMBER, $(lipo -archs "$APP/Contents/MacOS/DirectStat"))"
