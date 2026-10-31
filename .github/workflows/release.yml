@@ -1,7 +1,8 @@
 name: Release
 
-# Set the version in the VERSION file, commit, then push a matching tag:
-#   git tag v1.2.0 && git push origin v1.2.0
+# VERSION holds the version in development. To release it, push a matching tag:
+#   git tag "v$(cat VERSION)" && git push origin "v$(cat VERSION)"
+# Then bump VERSION for the next round of development.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]

@@ -53,14 +53,19 @@ The app is ad-hoc signed, so macOS may ask again after a rebuild.
 
 ## Releasing
 
-Set the new version in the `VERSION` file, commit it, then push a matching tag. GitHub Actions checks
-that the tag matches `VERSION`, runs the tests, builds a universal (Apple Silicon + Intel) app,
-and publishes a release with `DirectStat-x.y.z.dmg` and its SHA-256:
+The `VERSION` file holds the version being developed: the next one to be released.
 
-```sh
-git tag v0.2.1
-git push origin main v0.2.1
-```
+1. When the work is finished, tag that version and push. GitHub Actions checks that the tag matches
+   `VERSION`, runs the tests, builds a universal (Apple Silicon + Intel) app, and publishes a release
+   with `DirectStat-x.y.z.dmg` and its SHA-256:
+
+   ```sh
+   git tag "v$(cat VERSION)"
+   git push origin main "v$(cat VERSION)"
+   ```
+
+2. Then set `VERSION` to the next version (for example `0.2.1` → `0.2.2`) and commit it, so
+   development builds carry the new number.
 
 To build the same disk image locally: `./scripts/package-release.sh` (output in `dist/`).
 
