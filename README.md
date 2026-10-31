@@ -12,7 +12,8 @@ Native SwiftUI + AppKit, no dependencies.
 When the disk is full, you need answers to two questions: *which folders are big*, and *what can I safely delete*.
 DirectStat answers both in one window: a folder tree sorted by size, a treemap, and file types side by side,
 plus a **Cleanup** list that recognizes caches and build output and says which are safe to delete.
-It also shows how much used space no folder accounts for. Free, open source, and native on Apple Silicon.
+It also shows how much used space no folder accounts for. Free, open source (MIT), and native on Apple Silicon
+and Intel.
 
 ## Features
 
@@ -24,12 +25,17 @@ It also shows how much used space no folder accounts for. Free, open source, and
 - **Not in this scan**: on whole-disk scans, shows used space no folder accounts for (snapshots, system, no access)
 - Move to Trash or delete permanently, with the tree and treemap updated in place
 - Fast parallel scanner (`getattrlistbulk`), sizes match `du` (allocated bytes, hard links counted once)
+- **Private**: no network access at all. File names and sizes never leave your Mac
 
 ## Install
 
-Download the latest `DirectStat-x.y.z.dmg` from [Releases](../../releases), open it, and drag DirectStat onto
-the Applications folder. The app isn't notarized, so the first launch is blocked: open
-**System Settings › Privacy & Security**, scroll down, and click **Open Anyway**.
+Requires macOS 15 or later.
+
+1. Download the latest `DirectStat-x.y.z.dmg` from [Releases](../../releases), open it, and drag DirectStat onto
+   the Applications folder.
+2. Open DirectStat. The app isn't notarized, so the first launch is blocked: open
+   **System Settings › Privacy & Security**, scroll down, and click **Open Anyway**.
+3. To scan every folder, turn on DirectStat in **System Settings › Privacy & Security › Full Disk Access**.
 
 ## Build and run
 
@@ -74,3 +80,7 @@ Prints the largest folders, largest files, file types and cleanup suggestions.
 
 Dev flags, debug builds only (`swift build`, then `.build/debug/DirectStat`): `--scan <path>` starts a scan on
 launch; `--snapshot out.png --snapshot-after 10` saves a picture of the window and quits.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
