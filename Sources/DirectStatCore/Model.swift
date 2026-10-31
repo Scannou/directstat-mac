@@ -302,3 +302,24 @@ public struct VolumeInfo: Sendable {
             availableIncludingPurgeable: v.volumeAvailableCapacityForImportantUsage ?? Int64(avail))
     }
 }
+
+/// Turns scan paths into the paths people know.
+public enum Paths {
+    static let dataVolume = "/System/Volumes/Data"
+
+    /// "/System/Volumes/Data/Users/x" -> "/Users/x". Both point at the same
+    /// place; the short one is what Finder and Terminal show.
+    public static func withoutDataVolume(_ path: String) -> String {
+        if path == dataVolume { return "/" }
+        if path.hasPrefix(dataVolume + "/") { return String(path.dropFirst(dataVolume.count)) }
+        return path
+    }
+
+    /// Short form for display: no Data-volume prefix, home folder as "~".
+    public static func display(_ path: String, home: String = NSHomeDirectory()) -> String {
+        let p = withoutDataVolume(path)
+        if p == home { return "~" }
+        if p.hasPrefix(home + "/") { return "~" + p.dropFirst(home.count) }
+        return p
+    }
+}

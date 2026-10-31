@@ -149,7 +149,7 @@ final class AppModel: ObservableObject {
 
     func copyPath(_ ref: ItemRef) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(ref.path, forType: .string)
+        NSPasteboard.general.setString(Paths.withoutDataVolume(ref.path), forType: .string)
     }
 
     func openFullDiskAccessSettings() {
@@ -168,7 +168,7 @@ final class AppModel: ObservableObject {
         let name = ref.name
         let size = Fmt.bytes(ref.size)
         let path = ref.path
-        let inTrash = path.hasPrefix(NSHomeDirectory() + "/.Trash/")
+        let inTrash = Paths.withoutDataVolume(path).hasPrefix(NSHomeDirectory() + "/.Trash/")
         let permanent = permanently || inTrash
 
         let alert = NSAlert()
@@ -177,8 +177,8 @@ final class AppModel: ObservableObject {
             ? "Delete “\(name)” permanently?"
             : "Move “\(name)” to the Trash?"
         alert.informativeText = permanent
-            ? "\(size) will be freed. This can't be undone.\n\n\(path)"
-            : "\(size). The space is freed when you empty the Trash.\n\n\(path)"
+            ? "\(size) will be freed. This can't be undone.\n\n\(Paths.withoutDataVolume(path))"
+            : "\(size). The space is freed when you empty the Trash.\n\n\(Paths.withoutDataVolume(path))"
         alert.addButton(withTitle: permanent ? "Delete" : "Move to Trash")
         alert.addButton(withTitle: "Cancel")
         if permanent { alert.buttons[0].hasDestructiveAction = true }

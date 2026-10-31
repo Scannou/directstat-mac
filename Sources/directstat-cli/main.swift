@@ -79,7 +79,7 @@ printTree(root, level: 0)
 
 print("\nLargest files")
 for ref in Queries.largestFiles(in: root, limit: top) {
-    print("\(pad(fmt(ref.size), 10))  \(ref.path)")
+    print("\(pad(fmt(ref.size), 10))  \(Paths.withoutDataVolume(ref.path))")
 }
 
 print("\nFile types")
@@ -92,7 +92,7 @@ if !hogs.isEmpty {
     print("\nCleanup suggestions")
     for h in hogs.prefix(top * 2) {
         let tag = h.safety == .safe ? "safe  " : "review"
-        let where_ = h.nodes.count == 1 ? h.nodes[0].path : "\(h.nodes.count) folders"
+        let where_ = h.nodes.count == 1 ? Paths.withoutDataVolume(h.nodes[0].path) : "\(h.nodes.count) folders"
         print("\(pad(fmt(h.size), 10))  [\(tag)] \(h.title): \(where_)")
     }
 }

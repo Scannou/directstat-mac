@@ -97,13 +97,13 @@ struct ScanningView: View {
     var body: some View {
         VStack(spacing: 18) {
             ProgressView().controlSize(.large)
-            Text("Scanning \(model.scanPath)").font(.title3)
+            Text("Scanning \(Paths.display(model.scanPath))").font(.title3)
             HStack(spacing: 32) {
                 stat("Files", Fmt.count(model.progress.files))
                 stat("Folders", Fmt.count(model.progress.dirs))
                 stat("Size", Fmt.bytes(model.progress.bytes))
             }
-            Text(model.progress.currentPath)
+            Text(Paths.display(model.progress.currentPath))
                 .font(.caption.monospaced())
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -310,7 +310,7 @@ struct HogRow: View {
                     .buttonStyle(.link)
                     .font(.caption)
                 } else if let n = hog.nodes.first {
-                    Text(n.path).font(.caption).foregroundStyle(.secondary)
+                    Text(Paths.display(n.path)).font(.caption).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.head)
                 }
             }
@@ -318,7 +318,7 @@ struct HogRow: View {
             if expanded {
                 ForEach(Array(hog.nodes.prefix(100).enumerated()), id: \.offset) { _, n in
                     HStack {
-                        Text(n.path).lineLimit(1).truncationMode(.head)
+                        Text(Paths.display(n.path)).lineLimit(1).truncationMode(.head)
                         Spacer()
                         Text(Fmt.bytes(n.size)).monospacedDigit()
                     }
@@ -373,7 +373,7 @@ struct LargestFilesList: View {
                     Spacer()
                     Text(Fmt.bytes(ref.size)).bold().monospacedDigit()
                 }
-                Text(ref.parentDir?.path ?? "")
+                Text(ref.parentDir.map { Paths.display($0.path) } ?? "")
                     .font(.caption).foregroundStyle(.secondary)
                     .lineLimit(1).truncationMode(.head)
             }

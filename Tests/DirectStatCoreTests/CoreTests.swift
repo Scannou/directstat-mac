@@ -140,6 +140,16 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(HogFinder.normalize("/Users/x"), "/Users/x")
     }
 
+    func testDisplayPaths() {
+        let home = "/Users/x"
+        XCTAssertEqual(Paths.display("/System/Volumes/Data/Users/x/Downloads", home: home), "~/Downloads")
+        XCTAssertEqual(Paths.display("/System/Volumes/Data/Users/x", home: home), "~")
+        XCTAssertEqual(Paths.display("/System/Volumes/Data/Applications", home: home), "/Applications")
+        XCTAssertEqual(Paths.display("/Users/xy/file", home: home), "/Users/xy/file", "prefix must end at a /")
+        XCTAssertEqual(Paths.display("/System/Volumes/Data", home: home), "/")
+        XCTAssertEqual(Paths.withoutDataVolume("/System/Volumes/Data/Users/x/.Trash/a"), "/Users/x/.Trash/a")
+    }
+
     func testLargestFiles() throws {
         for i in 1...20 { try write("d\(i % 3)/f\(i).bin", bytes: i * 10_000) }
         let r = try scan()

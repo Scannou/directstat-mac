@@ -85,10 +85,7 @@ public enum HogFinder {
 
     /// Strips the Data-volume prefix so "/System/Volumes/Data/Users/x" matches "/Users/x".
     static func normalize(_ path: String) -> String {
-        let data = "/System/Volumes/Data"
-        if path == data { return "/" }
-        if path.hasPrefix(data + "/") { return String(path.dropFirst(data.count)) }
-        return path
+        Paths.withoutDataVolume(path)
     }
 
     static func matchByContents(_ d: DirNode) -> Rule? {

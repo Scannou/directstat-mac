@@ -113,7 +113,7 @@ struct TreemapPane: View {
         if let h = hover, h.size > 0 {
             HStack(spacing: 8) {
                 Text(Fmt.bytes(h.size)).bold().monospacedDigit()
-                Text(h.path).lineLimit(1).truncationMode(.middle)
+                Text(Paths.display(h.path)).lineLimit(1).truncationMode(.middle)
             }
             .font(.callout)
             .padding(.horizontal, 8).padding(.vertical, 4)
@@ -128,7 +128,7 @@ struct TreemapPane: View {
             HStack(spacing: 8) {
                 Button { model.zoomOut() } label: { Label("Zoom Out", systemImage: "minus.magnifyingglass") }
                 Button("Show All") { model.zoomRoot = nil }
-                Text(z.path).lineLimit(1).truncationMode(.head).foregroundStyle(.secondary)
+                Text(Paths.display(z.path)).lineLimit(1).truncationMode(.head).foregroundStyle(.secondary)
             }
             .font(.callout)
             .padding(.horizontal, 8).padding(.vertical, 4)
