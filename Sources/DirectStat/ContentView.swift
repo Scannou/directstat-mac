@@ -136,7 +136,7 @@ struct ResultsView: View {
                 OutlineTree()
                     .frame(minWidth: 420, idealWidth: 680, maxWidth: .infinity)
                 SidePanel()
-                    .frame(minWidth: 280, idealWidth: 340, maxWidth: 520)
+                    .frame(minWidth: 280, idealWidth: 360, maxWidth: .infinity)
             }
             .frame(minHeight: 180, idealHeight: 340)
             TreemapPane()
