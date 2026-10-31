@@ -15,18 +15,36 @@ final class AppModel: ObservableObject {
     @Published private(set) var volume: VolumeInfo?
     /// Bumped whenever the tree changes (an item was deleted).
     @Published private(set) var revision = 0
-    /// The folder whose contents changed in the last deletion.
-    private(set) var changedDir: DirNode?
+    /// Folders whose contents changed in the last deletion.
+    private(set) var changedDirs: [DirNode] = []
     @Published private(set) var busyMessage: String?
-    @Published var selection: ItemRef?
+    /// The main selected item: the one the treemap, zoom and Open act on.
+    /// Setting it to an item outside `selectedItems` selects only that item.
+    @Published var selection: ItemRef? {
+        didSet {
+            if let s = selection {
+                if !selectedItems.contains(s) { selectedItems = [s] }
+            } else if !selectedItems.isEmpty {
+                selectedItems = []
+            }
+        }
+    }
+    /// Every selected row of the folder tree. Contains `selection` when it is set.
+    @Published private(set) var selectedItems: [ItemRef] = []
     /// Folder the treemap is zoomed into. Nil means the scan root.
     @Published var zoomRoot: DirNode?
 
     private var scanner: DiskScanner?
     private var timer: Timer?
+    private var keyMonitor: Any?
 
     init() {
         volume = VolumeInfo.forPath("/")
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let key = event.keyCode, flags = event.modifierFlags
+            let handled = MainActor.assumeIsolated { self?.handleDeleteKey(key, flags) ?? false }
+            return handled ? nil : event
+        }
         #if DEBUG
         // Dev aid: `DirectStat --scan <path>` starts scanning right away.
         // Debug builds only: the installed app has Full Disk Access, and any
@@ -116,6 +134,27 @@ final class AppModel: ObservableObject {
 
     func select(_ ref: ItemRef?) { selection = ref }
 
+    /// Called by the folder tree with all its selected rows.
+    func setSelection(_ items: [ItemRef], primary: ItemRef?) {
+        selectedItems = items
+        selection = primary ?? items.last
+    }
+
+    /// The Delete key (or forward delete) moves the selection to the Trash.
+    /// With modifiers it is left to the menu shortcuts (⌘⌫, ⌥⌘⌫).
+    private func handleDeleteKey(_ key: UInt16, _ flags: NSEvent.ModifierFlags) -> Bool {
+        let deleteKeys: Set<UInt16> = [51, 117]  // delete, forward delete
+        // Only in the main window, not in an alert, panel or sheet.
+        guard deleteKeys.contains(key),
+              flags.intersection([.command, .option, .control, .shift]).isEmpty,
+              phase == .results, NSApp.modalWindow == nil,
+              let window = NSApp.keyWindow, window === NSApp.mainWindow, window.attachedSheet == nil,
+              !(window.firstResponder is NSText),
+              canDelete(selectedItems) else { return false }
+        delete(selectedItems, permanently: false)
+        return true
+    }
+
     func selectParent() {
         guard let sel = selection, let p = sel.parentDir else { return }
         selection = .dir(p)
@@ -143,9 +182,11 @@ final class AppModel: ObservableObject {
 
     // MARK: Actions
 
-    func reveal(_ ref: ItemRef) {
-        guard ref.hasExactPath else { return }
-        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: ref.path)])
+    func reveal(_ ref: ItemRef) { reveal([ref]) }
+
+    func reveal(_ refs: [ItemRef]) {
+        let urls = refs.filter(\.hasExactPath).map { URL(fileURLWithPath: $0.path) }
+        if !urls.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(urls) }
     }
 
     func open(_ ref: ItemRef) {
@@ -153,10 +194,14 @@ final class AppModel: ObservableObject {
         NSWorkspace.shared.open(URL(fileURLWithPath: ref.path))
     }
 
-    func copyPath(_ ref: ItemRef) {
-        guard ref.hasExactPath else { return }
+    func copyPath(_ ref: ItemRef) { copyPaths([ref]) }
+
+    /// One path per line.
+    func copyPaths(_ refs: [ItemRef]) {
+        let paths = refs.filter(\.hasExactPath).map { Paths.withoutDataVolume($0.path) }
+        guard !paths.isEmpty else { return }
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(Paths.withoutDataVolume(ref.path), forType: .string)
+        NSPasteboard.general.setString(paths.joined(separator: "\n"), forType: .string)
     }
 
     func openFullDiskAccessSettings() {
@@ -169,81 +214,117 @@ final class AppModel: ObservableObject {
         return ref != .dir(result.root) && ref.hasExactPath
     }
 
-    /// Asks for confirmation, then moves the item to the Trash or deletes it.
-    func delete(_ ref: ItemRef, permanently: Bool) {
-        guard canDelete(ref), let result else { return }
-        let name = ref.name
-        let size = Fmt.bytes(ref.size)
-        let path = ref.path
-        let inTrash = Paths.withoutDataVolume(path).hasPrefix(NSHomeDirectory() + "/.Trash/")
-        let permanent = permanently || inTrash
+    func canDelete(_ refs: [ItemRef]) -> Bool {
+        !refs.isEmpty && refs.allSatisfy { canDelete($0) }
+    }
+
+    /// Menu title for deleting `refs`, e.g. "Move 3 Items to Trash…".
+    func deleteTitle(_ refs: [ItemRef], permanently: Bool) -> String {
+        let n = ItemRef.outermost(refs).count
+        if n <= 1 { return permanently ? "Delete Permanently…" : "Move to Trash…" }
+        return permanently ? "Delete \(n) Items Permanently…" : "Move \(n) Items to Trash…"
+    }
+
+    func delete(_ ref: ItemRef, permanently: Bool) { delete([ref], permanently: permanently) }
+
+    /// Asks for confirmation, then moves the items to the Trash or deletes them.
+    /// Items inside another selected folder go with that folder.
+    func delete(_ refs: [ItemRef], permanently: Bool) {
+        let items = ItemRef.outermost(refs)
+        guard canDelete(items), let result else { return }
+        let trash = NSHomeDirectory() + "/.Trash/"
+        // Items already in the Trash can only be deleted for good.
+        let permanent = permanently || items.contains { Paths.withoutDataVolume($0.path).hasPrefix(trash) }
+        let size = Fmt.bytes(items.reduce(0) { $0 + $1.size })
+        let freed = permanent
+            ? "\(size) will be freed. This can't be undone."
+            : "\(size). The space is freed when you empty the Trash."
 
         let alert = NSAlert()
         alert.alertStyle = .warning
-        alert.messageText = permanent
-            ? "Delete “\(name)” permanently?"
-            : "Move “\(name)” to the Trash?"
-        alert.informativeText = permanent
-            ? "\(size) will be freed. This can't be undone.\n\n\(Paths.withoutDataVolume(path))"
-            : "\(size). The space is freed when you empty the Trash.\n\n\(Paths.withoutDataVolume(path))"
+        if items.count == 1, let only = items.first {
+            alert.messageText = permanent
+                ? "Delete “\(only.name)” permanently?"
+                : "Move “\(only.name)” to the Trash?"
+            alert.informativeText = "\(freed)\n\n\(Paths.withoutDataVolume(only.path))"
+        } else {
+            alert.messageText = permanent
+                ? "Delete \(items.count) items permanently?"
+                : "Move \(items.count) items to the Trash?"
+            let shown = 8
+            var list = items.prefix(shown).map { Paths.withoutDataVolume($0.path) }
+            if items.count > shown { list.append("…and \(items.count - shown) more") }
+            alert.informativeText = "\(freed)\n\n" + list.joined(separator: "\n")
+        }
         alert.addButton(withTitle: permanent ? "Delete" : "Move to Trash")
         alert.addButton(withTitle: "Cancel")
         if permanent { alert.buttons[0].hasDestructiveAction = true }
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
-        busyMessage = permanent ? "Deleting \(name)…" : "Moving \(name) to the Trash…"
-        let isDirectory = ref.isDirectory
+        let what = items.count == 1 ? items[0].name : "\(items.count) items"
+        busyMessage = permanent ? "Deleting \(what)…" : "Moving \(what) to the Trash…"
+        let jobs = items.map { DeleteJob(ref: $0, name: $0.name, path: $0.path, isDirectory: $0.isDirectory) }
         Task.detached(priority: .userInitiated) {
-            let url = URL(fileURLWithPath: path)
-            let failure: String?
-            do {
-                if let problem = DeleteCheck.problem(path: path, isDirectory: isDirectory) {
-                    failure = problem
-                } else if permanent {
-                    try FileManager.default.removeItem(at: url)
-                    failure = nil
-                } else {
-                    try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-                    failure = nil
+            var deleted: [ItemRef] = []
+            var failures: [(name: String, reason: String)] = []
+            for job in jobs {
+                do {
+                    if let problem = DeleteCheck.problem(path: job.path, isDirectory: job.isDirectory) {
+                        failures.append((job.name, problem))
+                        continue
+                    }
+                    let url = URL(fileURLWithPath: job.path)
+                    if permanent {
+                        try FileManager.default.removeItem(at: url)
+                    } else {
+                        try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    }
+                    deleted.append(job.ref)
+                } catch {
+                    failures.append((job.name, error.localizedDescription))
                 }
-            } catch {
-                failure = error.localizedDescription
             }
+            let done = deleted, failed = failures
             await MainActor.run {
                 self.busyMessage = nil
-                if let failure {
-                    let a = NSAlert()
-                    a.messageText = "Couldn't delete “\(name)”"
-                    a.informativeText = failure
-                    a.runModal()
-                    return
+                self.applyRemoval(done, in: result)
+                guard !failed.isEmpty else { return }
+                let a = NSAlert()
+                if failed.count == 1, let f = failed.first {
+                    a.messageText = "Couldn't delete “\(f.name)”"
+                    a.informativeText = f.reason
+                } else {
+                    a.messageText = "Couldn't delete \(failed.count) items"
+                    a.informativeText = failed.prefix(8).map { "\($0.name): \($0.reason)" }.joined(separator: "\n\n")
                 }
-                self.applyRemoval(ref, in: result)
+                a.runModal()
             }
         }
     }
 
-    private func applyRemoval(_ ref: ItemRef, in result: ScanResult) {
-        guard result === self.result else { return }
-        if case .dir(let d) = ref, let z = zoomRoot, z === d || d.isAncestor(of: z) {
-            zoomRoot = nil
+    private func applyRemoval(_ refs: [ItemRef], in result: ScanResult) {
+        guard result === self.result, !refs.isEmpty else { return }
+        let removedDirs = refs.compactMap { ref -> DirNode? in
+            if case .dir(let d) = ref { return d }
+            return nil
         }
+        func underRemovedDir(_ d: DirNode) -> Bool {
+            removedDirs.contains { $0 === d || $0.isAncestor(of: d) }
+        }
+        if let z = zoomRoot, underRemovedDir(z) { zoomRoot = nil }
         selection = nil
-        changedDir = ref.parentDir
-        // File rows in the changed folder shift index; drop them until the
+        changedDirs = refs.compactMap(\.parentDir)
+        // File rows in a changed folder shift index; drop them until the
         // list is rebuilt below so no row points at the wrong file.
-        let changed = ref.parentDir
-        let removedDir: DirNode? = { if case .dir(let d) = ref { return d }; return nil }()
+        let changed = Set(changedDirs.map(ObjectIdentifier.init))
         largestFiles.removeAll { r in
             let d = r.containingDir
-            if d === changed { return true }
-            if let removedDir, d === removedDir || removedDir.isAncestor(of: d) { return true }
-            return false
+            return changed.contains(ObjectIdentifier(d)) || underRemovedDir(d)
         }
-        if let removedDir {
-            hogs = hogs.compactMap { $0.removing(under: removedDir) }
+        for d in removedDirs {
+            hogs = hogs.compactMap { $0.removing(under: d) }
         }
-        result.remove(ref)
+        result.remove(refs)
         revision += 1
         volume = VolumeInfo.forPath(result.rootPath)
         Task.detached(priority: .utility) {
@@ -258,6 +339,13 @@ final class AppModel: ObservableObject {
     }
 }
 
+private struct DeleteJob: Sendable {
+    let ref: ItemRef
+    let name: String
+    let path: String
+    let isDirectory: Bool
+}
+
 enum Fmt {
     static func bytes(_ n: Int64) -> String {
         ByteCountFormatter.string(fromByteCount: n, countStyle: .file)
@@ -265,6 +353,19 @@ enum Fmt {
 
     static func count(_ n: Int) -> String {
         n.formatted(.number)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        f.doesRelativeDateFormatting = true
+        return f
+    }()
+
+    /// "Today at 14:05", "12 Mar 2024 at 09:30"; empty if unknown.
+    static func date(_ d: Date?) -> String {
+        d.map { dateFormatter.string(from: $0) } ?? ""
     }
 
     static func percent(_ part: Int64, of whole: Int64) -> String {

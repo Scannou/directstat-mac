@@ -63,15 +63,18 @@ struct TreemapPane: View {
                         .interpolation(.none)
                         .frame(width: geo.size.width, height: geo.size.height)
                 }
-                if let sel = model.selection, let r = ctl.rect(for: sel) {
-                    let w = max(r.width, 5), h = max(r.height, 5)
-                    ZStack {
-                        Rectangle().strokeBorder(Color.black.opacity(0.8), lineWidth: 4)
-                        Rectangle().strokeBorder(Color.white, lineWidth: 2).padding(1)
+                // Outline every selected item (capped so selecting thousands stays fast).
+                ForEach(Array(model.selectedItems.prefix(300).enumerated()), id: \.offset) { _, sel in
+                    if let r = ctl.rect(for: sel) {
+                        let w = max(r.width, 5), h = max(r.height, 5)
+                        ZStack {
+                            Rectangle().strokeBorder(Color.black.opacity(0.8), lineWidth: 4)
+                            Rectangle().strokeBorder(Color.white, lineWidth: 2).padding(1)
+                        }
+                        .frame(width: w, height: h)
+                        .offset(x: r.midX - w / 2, y: r.midY - h / 2)
+                        .allowsHitTesting(false)
                     }
-                    .frame(width: w, height: h)
-                    .offset(x: r.midX - w / 2, y: r.midY - h / 2)
-                    .allowsHitTesting(false)
                 }
             }
             .contentShape(Rectangle())
@@ -85,13 +88,14 @@ struct TreemapPane: View {
                 }
             }
             .contextMenu {
-                if let sel = model.selection {
-                    Button("Reveal in Finder") { model.reveal(sel) }
+                if model.selection != nil {
+                    let all = model.selectedItems
+                    Button("Reveal in Finder") { model.reveal(all) }
                     Button("Zoom In") { model.zoomIn() }.disabled(!model.canZoomIn)
                     Button("Zoom Out") { model.zoomOut() }.disabled(model.zoomRoot == nil)
                     Divider()
-                    Button("Move to Trash…") { model.delete(sel, permanently: false) }
-                        .disabled(!model.canDelete(sel))
+                    Button(model.deleteTitle(all, permanently: false)) { model.delete(all, permanently: false) }
+                        .disabled(!model.canDelete(all))
                 }
             }
             .onAppear { size = geo.size; redraw() }

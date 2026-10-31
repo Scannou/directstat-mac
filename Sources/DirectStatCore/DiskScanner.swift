@@ -14,6 +14,7 @@ public struct ScanProgress: Sendable {
 // getattrlistbulk attribute bits (from <sys/attr.h>), typed as UInt32.
 private let kCmnName: UInt32 = 0x0000_0001
 private let kCmnObjType: UInt32 = 0x0000_0008
+private let kCmnModTime: UInt32 = 0x0000_0400
 private let kCmnFileID: UInt32 = 0x0200_0000
 private let kCmnError: UInt32 = 0x2000_0000
 private let kCmnReturnedAttrs: UInt32 = 0x8000_0000
@@ -92,6 +93,7 @@ public final class DiskScanner: @unchecked Sendable {
         let types = TypeTable()
         if lstat(rootPath, &st) == 0 {
             rootDev = st.st_dev
+            root.modTime = compactTime(seconds: st.st_mtimespec.tv_sec)
             if stayOnVolume {
                 mountPoints = DiskScanner.mountPointsToSkip(mounts: DiskScanner.currentMounts(), root: rootPath)
             }
@@ -139,7 +141,7 @@ public final class DiskScanner: @unchecked Sendable {
         var cache: [String: UInt16] = [:]
         var al = attrlist()
         al.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
-        al.commonattr = kCmnReturnedAttrs | kCmnName | kCmnError | kCmnObjType | kCmnFileID
+        al.commonattr = kCmnReturnedAttrs | kCmnName | kCmnError | kCmnObjType | kCmnModTime | kCmnFileID
         al.fileattr = kFileLinkCount | kFileAllocSize
 
         while let job = queue.next() {
@@ -212,10 +214,18 @@ public final class DiskScanner: @unchecked Sendable {
                 let objType = p.loadUnaligned(as: UInt32.self)
                 p += 4
 
+                // Attributes come in bit order: the time sits between type and file ID.
+                var modTime: UInt32 = 0
+                if common & kCmnModTime != 0 {
+                    modTime = compactTime(seconds: p.loadUnaligned(as: timespec.self).tv_sec)
+                    p += MemoryLayout<timespec>.size
+                }
+
                 let (name, exact) = DiskScanner.decodeName(nameBytes)
                 if objType == kTypeDir {
                     let child = DirNode(name: name, parent: node)
                     child.exactName = exact
+                    child.modTime = modTime
                     subdirs.append(child)
                     let childPath = base + name
                     if mountPoints.contains(childPath) {
@@ -247,7 +257,8 @@ public final class DiskScanner: @unchecked Sendable {
                 }
 
                 let typeID = DiskScanner.typeID(for: nameBytes, cache: &cache, types: types)
-                files.append(FileEntry(name: name, size: size, typeID: typeID, exactName: exact))
+                files.append(FileEntry(name: name, size: size, typeID: typeID,
+                                       exactName: exact, modTime: modTime))
                 bytes += size
             }
         }
@@ -318,7 +329,8 @@ public final class DiskScanner: @unchecked Sendable {
         return id
     }
 
-    /// Adds up sizes bottom-up, sorts every folder largest first, and totals file types.
+    /// Adds up sizes and newest dates bottom-up, sorts every folder largest
+    /// first, and totals file types.
     static func finalize(_ root: DirNode, types: inout [TypeInfo]) {
         var stack: [(DirNode, Bool)] = [(root, false)]
         while let (n, visited) = stack.popLast() {
@@ -330,8 +342,10 @@ public final class DiskScanner: @unchecked Sendable {
             var size: Int64 = 0
             var fileCount = n.files.count
             var dirCount = n.subdirs.count
+            var newest = n.modTime
             for f in n.files {
                 size += f.size
+                newest = max(newest, f.modTime)
                 types[Int(f.typeID)].size += f.size
                 types[Int(f.typeID)].count += 1
             }
@@ -339,7 +353,9 @@ public final class DiskScanner: @unchecked Sendable {
                 size += d.size
                 fileCount += d.fileCount
                 dirCount += d.dirCount
+                newest = max(newest, d.modTime)
             }
+            n.modTime = newest
             n.size = size
             n.fileCount = fileCount
             n.dirCount = dirCount

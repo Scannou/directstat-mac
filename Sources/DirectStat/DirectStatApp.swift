@@ -25,12 +25,14 @@ struct DirectStatApp: App {
                     .disabled(model.result == nil)
             }
             CommandMenu("Item") {
-                Button("Reveal in Finder") { if let s = model.selection { model.reveal(s) } }
+                Button("Reveal in Finder") { model.reveal(model.selectedItems) }
                     .keyboardShortcut("r", modifiers: [.command, .shift])
-                    .disabled(model.selection == nil)
-                Button("Copy Path") { if let s = model.selection { model.copyPath(s) } }
+                    .disabled(model.selectedItems.isEmpty)
+                Button(model.selectedItems.count > 1 ? "Copy Paths" : "Copy Path") {
+                    model.copyPaths(model.selectedItems)
+                }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
-                    .disabled(model.selection == nil)
+                    .disabled(model.selectedItems.isEmpty)
                 Button("Select Parent Folder") { model.selectParent() }
                     .keyboardShortcut(.upArrow, modifiers: .command)
                     .disabled(model.selection?.parentDir == nil)
@@ -42,12 +44,16 @@ struct DirectStatApp: App {
                     .keyboardShortcut("-")
                     .disabled(model.zoomRoot == nil)
                 Divider()
-                Button("Move to Trash…") { if let s = model.selection { model.delete(s, permanently: false) } }
+                Button(model.deleteTitle(model.selectedItems, permanently: false)) {
+                    model.delete(model.selectedItems, permanently: false)
+                }
                     .keyboardShortcut(.delete, modifiers: .command)
-                    .disabled(!model.canDelete(model.selection))
-                Button("Delete Permanently…") { if let s = model.selection { model.delete(s, permanently: true) } }
+                    .disabled(!model.canDelete(model.selectedItems))
+                Button(model.deleteTitle(model.selectedItems, permanently: true)) {
+                    model.delete(model.selectedItems, permanently: true)
+                }
                     .keyboardShortcut(.delete, modifiers: [.command, .option])
-                    .disabled(!model.canDelete(model.selection))
+                    .disabled(!model.canDelete(model.selectedItems))
             }
         }
     }

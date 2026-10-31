@@ -10,13 +10,25 @@ public struct FileEntry: Sendable {
     /// False if the name on disk wasn't valid UTF-8 (possible on non-Mac
     /// drives), so `name` is only an approximation of it.
     public var exactName: Bool
+    /// Last modified, in seconds since 1970 (0 if unknown). 32 bits keep the
+    /// struct at 32 bytes and cover dates up to 2106.
+    public var modTime: UInt32
 
-    public init(name: String, size: Int64, typeID: UInt16, exactName: Bool = true) {
+    public init(name: String, size: Int64, typeID: UInt16, exactName: Bool = true, modTime: UInt32 = 0) {
         self.name = name
         self.size = size
         self.typeID = typeID
         self.exactName = exactName
+        self.modTime = modTime
     }
+}
+
+/// Converts a file-system time to the compact form stored per item.
+public func compactTime(seconds: Int) -> UInt32 { UInt32(clamping: seconds) }
+
+/// Nil for a missing time (0).
+public func dateFromCompactTime(_ t: UInt32) -> Date? {
+    t == 0 ? nil : Date(timeIntervalSince1970: TimeInterval(t))
 }
 
 /// A folder in the scanned tree. After a scan finishes, `subdirs` and `files`
@@ -39,6 +51,9 @@ public final class DirNode: @unchecked Sendable {
     public internal(set) var otherVolume = false
     /// False if the name on disk wasn't valid UTF-8; see `FileEntry.exactName`.
     public internal(set) var exactName = true
+    /// During the scan, the folder's own modification time. Afterwards, the
+    /// newest modification of the folder or anything inside it (see `FileEntry.modTime`).
+    public internal(set) var modTime: UInt32 = 0
 
     public init(name: String, parent: DirNode?) {
         self.name = name
@@ -90,6 +105,13 @@ public final class DirNode: @unchecked Sendable {
         return out
     }
 
+    /// Subfolders and files merged into one list, in the given order.
+    public func children(sortedBy key: SortKey, ascending: Bool) -> [ItemRef] {
+        let kids = children()
+        if key == .size && !ascending { return kids }
+        return ItemRef.sorted(kids, by: key, ascending: ascending)
+    }
+
     static func bySize(_ a: DirNode, _ b: DirNode) -> Bool {
         a.size != b.size ? a.size > b.size : a.name < b.name
     }
@@ -97,6 +119,11 @@ public final class DirNode: @unchecked Sendable {
     static func bySize(_ a: FileEntry, _ b: FileEntry) -> Bool {
         a.size != b.size ? a.size > b.size : a.name < b.name
     }
+}
+
+/// Column a folder listing can be sorted by.
+public enum SortKey: String, Sendable {
+    case name, size, items, modified
 }
 
 /// Points at either a folder or one file inside a folder.
@@ -158,6 +185,67 @@ public enum ItemRef: Hashable, @unchecked Sendable {
         switch self {
         case .dir(let d): return d.size
         case .file: return file?.size ?? 0
+        }
+    }
+
+    /// Number of files and folders inside; 0 for a file.
+    public var itemCount: Int {
+        if case .dir(let d) = self { return d.itemCount }
+        return 0
+    }
+
+    /// See `FileEntry.modTime` and `DirNode.modTime`.
+    public var modTime: UInt32 {
+        switch self {
+        case .dir(let d): return d.modTime
+        case .file: return file?.modTime ?? 0
+        }
+    }
+
+    public var modified: Date? { dateFromCompactTime(modTime) }
+
+    /// Sorts by `key`. Ties are broken by name, then by size, so the order is stable.
+    public static func sorted(_ refs: [ItemRef], by key: SortKey, ascending: Bool) -> [ItemRef] {
+        struct Row { let ref: ItemRef; let name: String; let size: Int64; let items: Int; let time: UInt32 }
+        let rows = refs.map { Row(ref: $0, name: $0.name, size: $0.size, items: $0.itemCount, time: $0.modTime) }
+        func byName(_ a: Row, _ b: Row) -> ComparisonResult { a.name.localizedStandardCompare(b.name) }
+        return rows.sorted { a, b in
+            var order: ComparisonResult
+            switch key {
+            case .name: order = byName(a, b)
+            case .size: order = a.size == b.size ? .orderedSame : (a.size < b.size ? .orderedAscending : .orderedDescending)
+            case .items: order = a.items == b.items ? .orderedSame : (a.items < b.items ? .orderedAscending : .orderedDescending)
+            case .modified: order = a.time == b.time ? .orderedSame : (a.time < b.time ? .orderedAscending : .orderedDescending)
+            }
+            if order != .orderedSame { return ascending ? order == .orderedAscending : order == .orderedDescending }
+            order = key == .name ? .orderedSame : byName(a, b)
+            if order != .orderedSame { return order == .orderedAscending }
+            return a.size > b.size
+        }.map(\.ref)
+    }
+
+    /// Drops items that sit inside another item of the list, and duplicates,
+    /// so deleting the result touches each thing on disk once.
+    public static func outermost(_ refs: [ItemRef]) -> [ItemRef] {
+        let dirs = Set(refs.compactMap { ref -> ObjectIdentifier? in
+            if case .dir(let d) = ref { return ObjectIdentifier(d) }
+            return nil
+        })
+        func insideSelectedDir(_ d: DirNode?) -> Bool {
+            var n = d
+            while let cur = n {
+                if dirs.contains(ObjectIdentifier(cur)) { return true }
+                n = cur.parent
+            }
+            return false
+        }
+        var seen: Set<ItemRef> = []
+        return refs.filter { ref in
+            guard seen.insert(ref).inserted else { return false }
+            switch ref {
+            case .dir(let d): return !insideSelectedDir(d.parent)
+            case .file(let d, _): return !insideSelectedDir(d)
+            }
         }
     }
 
@@ -227,6 +315,20 @@ public final class ScanResult: @unchecked Sendable {
         let i = Int(id)
         guard i < colorSlot.count, colorSlot[i] >= 0 else { return Palette.other }
         return Palette.colors[colorSlot[i]]
+    }
+
+    /// Removes several deleted items. File references are index based, so
+    /// files go last-index first to keep the remaining indices valid.
+    /// Expects `ItemRef.outermost` input (nothing inside another item).
+    public func remove(_ refs: [ItemRef]) {
+        let ordered = refs.sorted { a, b in
+            switch (a, b) {
+            case let (.file(_, i), .file(_, j)): return i > j
+            case (.dir, .file): return true
+            default: return false
+            }
+        }
+        for ref in ordered { remove(ref) }
     }
 
     /// Removes an item from the tree after it was deleted on disk, and

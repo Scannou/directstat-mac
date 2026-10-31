@@ -168,15 +168,15 @@ struct ResultsView: View {
                 .help("Zoom the treemap out one level")
                 .disabled(model.zoomRoot == nil)
             Button {
-                if let s = model.selection { model.reveal(s) }
+                model.reveal(model.selectedItems)
             } label: { Label("Reveal in Finder", systemImage: "folder") }
                 .help("Reveal in Finder")
-                .disabled(model.selection == nil)
+                .disabled(model.selectedItems.isEmpty)
             Button {
-                if let s = model.selection { model.delete(s, permanently: false) }
+                model.delete(model.selectedItems, permanently: false)
             } label: { Label("Move to Trash", systemImage: "trash") }
-                .help("Move to Trash (⌘⌫)")
-                .disabled(!model.canDelete(model.selection))
+                .help("Move to Trash (Delete or ⌘⌫)")
+                .disabled(!model.canDelete(model.selectedItems))
             Menu {
                 Button("Rescan") { model.rescan() }
                 Divider()
@@ -200,6 +200,11 @@ struct StatusBar: View {
         HStack(spacing: 14) {
             if let r = model.result {
                 Text("\(Fmt.bytes(r.root.size)) · \(Fmt.count(r.root.fileCount)) files · \(Fmt.count(r.root.dirCount)) folders · scanned in \(String(format: "%.1f", r.duration)) s")
+                if model.selectedItems.count > 1 {
+                    let picked = ItemRef.outermost(model.selectedItems)
+                    Text("\(Fmt.count(picked.count)) selected (\(Fmt.bytes(picked.reduce(0) { $0 + $1.size })))")
+                        .bold()
+                }
                 if r.unreadableCount > 0 {
                     Button("\(Fmt.count(r.unreadableCount)) folders unreadable: grant Full Disk Access") {
                         model.openFullDiskAccessSettings()

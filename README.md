@@ -17,13 +17,15 @@ and Intel.
 
 ## Features
 
-- **Folder tree** sorted by size, with a "% of parent" bar, size and item count
+- **Folder tree** with a "% of parent" bar, size, item count and last-modified date.
+  Click a column header to sort by name, size, items or date
 - **Treemap** with cushion shading, colored by file type. Click to select, hover for path and size
 - **Cleanup** tab: finds known space hogs (Xcode DerivedData, caches, `node_modules`,
   Docker image, Gradle/npm/Maven caches, iPhone backups, Trash…), labeled "Safe to delete" or "Review first"
 - **Largest Files** and **File Types** tabs
 - **Not in this scan**: on whole-disk scans, shows used space no folder accounts for (snapshots, system, no access)
-- Move to Trash or delete permanently, with the tree and treemap updated in place
+- Move to Trash (Delete key) or delete permanently, with the tree and treemap updated in place.
+  ⌘-click or ⇧-click to select several items and delete them in one go
 - Fast parallel scanner (`getattrlistbulk`), sizes match `du` (allocated bytes, hard links counted once)
 - **Private**: no network access at all. File names and sizes never leave your Mac
 

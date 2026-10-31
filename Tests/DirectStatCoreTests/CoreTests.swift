@@ -239,4 +239,65 @@ final class CoreTests: XCTestCase {
         let top = Queries.largestFiles(in: r.root, limit: 5)
         XCTAssertEqual(top.map(\.name), ["f20.bin", "f19.bin", "f18.bin", "f17.bin", "f16.bin"])
     }
+
+    private func setModified(_ rel: String, _ date: Date) throws {
+        try FileManager.default.setAttributes([.modificationDate: date],
+                                              ofItemAtPath: dir.appendingPathComponent(rel).path)
+    }
+
+    func testModificationDates() throws {
+        try write("old/a.txt", bytes: 100)
+        try write("old/b.txt", bytes: 100)
+        let old = Date(timeIntervalSince1970: 1_000_000_000)
+        let newer = Date(timeIntervalSince1970: 1_500_000_000)
+        try setModified("old/a.txt", old)
+        try setModified("old/b.txt", newer)
+        try setModified("old", old)
+        let r = try scan()
+        let folder = try XCTUnwrap(r.root.subdirs.first { $0.name == "old" })
+        let a = try XCTUnwrap(folder.files.first { $0.name == "a.txt" })
+        XCTAssertEqual(dateFromCompactTime(a.modTime), old)
+        XCTAssertEqual(ItemRef.dir(folder).modified, newer, "folder shows its newest item")
+        XCTAssertGreaterThanOrEqual(r.root.modTime, folder.modTime)
+    }
+
+    func testSortedChildren() throws {
+        try write("b.bin", bytes: 30_000)
+        try write("A.bin", bytes: 10_000)
+        try write("c/x.bin", bytes: 20_000)
+        try setModified("b.bin", Date(timeIntervalSince1970: 1_000_000_000))
+        try setModified("A.bin", Date(timeIntervalSince1970: 1_200_000_000))
+        try setModified("c/x.bin", Date(timeIntervalSince1970: 1_100_000_000))
+        try setModified("c", Date(timeIntervalSince1970: 1_100_000_000))
+        let r = try scan()
+        let names = { (key: SortKey, asc: Bool) in r.root.children(sortedBy: key, ascending: asc).map(\.name) }
+        XCTAssertEqual(names(.size, false), ["b.bin", "c", "A.bin"])
+        XCTAssertEqual(names(.size, true), ["A.bin", "c", "b.bin"])
+        XCTAssertEqual(names(.name, true), ["A.bin", "b.bin", "c"], "case-insensitive, like Finder")
+        XCTAssertEqual(names(.modified, false), ["A.bin", "c", "b.bin"])
+        XCTAssertEqual(names(.items, false).first, "c", "only the folder has items")
+    }
+
+    func testRemoveSeveralItems() throws {
+        try write("d/f1.bin", bytes: 40_000)
+        try write("d/f2.bin", bytes: 30_000)
+        try write("d/f3.bin", bytes: 20_000)
+        try write("d/sub/g.bin", bytes: 10_000)
+        try write("keep.bin", bytes: 5_000)
+        let r = try scan()
+        let d = try XCTUnwrap(r.root.subdirs.first { $0.name == "d" })
+        let sub = try XCTUnwrap(d.subdirs.first)
+        // A folder and something inside it: only the folder is kept.
+        XCTAssertEqual(ItemRef.outermost([.dir(sub), .file(sub, 0), .dir(sub)]), [.dir(sub)])
+        XCTAssertEqual(ItemRef.outermost([.file(d, 0), .dir(d)]), [.dir(d)])
+
+        // Removing the 1st and 3rd file must not shift onto the wrong file.
+        let names = Set(d.files.map(\.name))
+        let gone = Set([d.files[0].name, d.files[2].name])
+        r.remove([.file(d, 0), .file(d, 2), .dir(sub)])
+        XCTAssertEqual(Set(d.files.map(\.name)), names.subtracting(gone))
+        XCTAssertEqual(d.subdirs.count, 0)
+        XCTAssertEqual(r.root.fileCount, 2)
+        XCTAssertEqual(r.root.size, d.size + r.root.files.reduce(0) { $0 + $1.size })
+    }
 }

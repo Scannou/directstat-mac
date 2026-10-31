@@ -26,31 +26,44 @@ struct OutlineTree: NSViewRepresentable {
         ov.usesAlternatingRowBackgroundColors = true
         ov.style = .fullWidth
         ov.rowHeight = 20
-        ov.allowsMultipleSelection = false
+        ov.allowsMultipleSelection = true
         ov.autoresizesOutlineColumn = false
         ov.indentationPerLevel = 14
-        // Extra width is shared by Name and the % bar; Size and Items stay put.
+        // Extra width is shared by Name and the % bar; the other columns stay put.
         ov.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
 
+        /// `sort` is what clicking the header sorts by; the first click
+        /// sorts ascending for names and largest/newest first otherwise.
         func column(_ id: String, _ title: String, _ width: CGFloat, min: CGFloat,
-                    right: Bool = false, grows: Bool = true) -> NSTableColumn {
+                    right: Bool = false, grows: Bool = true, sort: SortKey?) -> NSTableColumn {
             let c = NSTableColumn(identifier: .init(id))
             c.title = title
             c.width = width
             c.minWidth = min
             c.resizingMask = grows ? [.autoresizingMask, .userResizingMask] : .userResizingMask
             if right { c.headerCell.alignment = .right }
+            if let sort {
+                c.sortDescriptorPrototype = NSSortDescriptor(key: sort.rawValue, ascending: sort == .name)
+            }
             return c
         }
-        let name = column("name", "Name", 260, min: 160)
+        let name = column("name", "Name", 260, min: 160, sort: .name)
         ov.addTableColumn(name)
         ov.outlineTableColumn = name
-        ov.addTableColumn(column("bar", "% of Parent", 300, min: 80))
-        ov.addTableColumn(column("size", "Size", 95, min: 70, right: true, grows: false))
-        ov.addTableColumn(column("items", "Items", 85, min: 60, right: true, grows: false))
-        // Remember column widths the user drags between launches.
-        ov.autosaveName = "DirectStat.FolderTree"
+        // Sorting by share of parent is sorting by size, which the Size column does.
+        ov.addTableColumn(column("bar", "% of Parent", 300, min: 80, sort: nil))
+        ov.addTableColumn(column("size", "Size", 95, min: 70, right: true, grows: false, sort: .size))
+        ov.addTableColumn(column("items", "Items", 85, min: 60, right: true, grows: false, sort: .items))
+        let modified = column("modified", "Modified", 170, min: 90, grows: false, sort: .modified)
+        modified.headerToolTip = "When the item last changed. Folders show the newest change anywhere inside."
+        ov.addTableColumn(modified)
+        ov.sortDescriptors = [NSSortDescriptor(key: SortKey.size.rawValue, ascending: false)]
+        // Remember column widths and the sort order between launches. The name
+        // changed when the Modified column was added: widths saved for the old
+        // columns filled the view and pushed the new one out of sight.
+        ov.autosaveName = "DirectStat.FolderTree.2"
         ov.autosaveTableColumns = true
+        context.coordinator.readSort(ov.sortDescriptors)
 
         ov.dataSource = context.coordinator
         ov.delegate = context.coordinator
@@ -84,6 +97,8 @@ struct OutlineTree: NSViewRepresentable {
         private var rootItem: OutlineItem?
         private var dirItems: [ObjectIdentifier: OutlineItem] = [:]
         private var syncing = false
+        private var sortKey = SortKey.size
+        private var ascending = false
 
         init(model: AppModel) { self.model = model }
 
@@ -101,12 +116,32 @@ struct OutlineTree: NSViewRepresentable {
                 if let rootItem { ov.expandItem(rootItem) }
             } else if model.revision != revision {
                 revision = model.revision
-                if let changed = model.changedDir {
+                for changed in model.changedDirs {
                     for d in changed.ancestors { dirItems[ObjectIdentifier(d)]?.cachedChildren = nil }
                 }
                 ov.reloadData()
             }
-            syncSelection(model.selection)
+            syncSelection(model.selectedItems, primary: model.selection)
+        }
+
+        // MARK: Sorting
+
+        func readSort(_ descriptors: [NSSortDescriptor]) {
+            guard let d = descriptors.first, let key = d.key.flatMap(SortKey.init(rawValue:)) else { return }
+            sortKey = key
+            ascending = d.ascending
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) {
+            readSort(outlineView.sortDescriptors)
+            for it in dirItems.values { it.cachedChildren = nil }
+            syncing = true
+            defer { syncing = false }
+            // Rows move, so put the selection back on the same items.
+            let selected = model.selectedItems
+            outlineView.reloadData()
+            outlineView.deselectAll(nil)
+            syncSelection(selected, primary: model.selection)
         }
 
         private func item(for d: DirNode) -> OutlineItem {
@@ -120,7 +155,7 @@ struct OutlineTree: NSViewRepresentable {
         private func children(of it: OutlineItem) -> [OutlineItem] {
             if let c = it.cachedChildren { return c }
             guard case .dir(let d) = it.ref else { return [] }
-            let c = d.children().map { ref -> OutlineItem in
+            let c = d.children(sortedBy: sortKey, ascending: ascending).map { ref -> OutlineItem in
                 if case .dir(let sub) = ref { return item(for: sub) }
                 return OutlineItem(ref)
             }
@@ -130,20 +165,23 @@ struct OutlineTree: NSViewRepresentable {
 
         // MARK: Selection sync
 
-        private func syncSelection(_ ref: ItemRef?) {
+        private func selectedRefs(_ ov: NSOutlineView) -> [ItemRef] {
+            ov.selectedRowIndexes.compactMap { (ov.item(atRow: $0) as? OutlineItem)?.ref }
+        }
+
+        private func syncSelection(_ refs: [ItemRef], primary: ItemRef?) {
             guard let ov = outline else { return }
-            let row = ov.selectedRow
-            let current = row >= 0 ? (ov.item(atRow: row) as? OutlineItem)?.ref : nil
-            guard current != ref else { return }
-            guard let ref, let target = reveal(ref) else {
+            guard Set(selectedRefs(ov)) != Set(refs) else { return }
+            // Expand everything first: expanding shifts the rows below.
+            let targets = refs.map { ($0, reveal($0)) }
+            let rows = IndexSet(targets.compactMap { $0.1.map(ov.row(forItem:)) }.filter { $0 >= 0 })
+            guard !rows.isEmpty else {
                 ov.deselectAll(nil)
                 return
             }
-            let r = ov.row(forItem: target)
-            if r >= 0 {
-                ov.selectRowIndexes([r], byExtendingSelection: false)
-                ov.scrollRowToVisible(r)
-            }
+            ov.selectRowIndexes(rows, byExtendingSelection: false)
+            let main = targets.first { $0.0 == primary }?.1.map(ov.row(forItem:)) ?? rows.last!
+            if main >= 0 { ov.scrollRowToVisible(main) }
         }
 
         /// Expands the outline down to `ref` and returns its row object.
@@ -165,9 +203,13 @@ struct OutlineTree: NSViewRepresentable {
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
             guard !syncing, let ov = outline else { return }
+            let refs = selectedRefs(ov)
+            // selectedRow is the row clicked or added last.
             let row = ov.selectedRow
-            let ref = row >= 0 ? (ov.item(atRow: row) as? OutlineItem)?.ref : nil
-            if model.selection != ref { model.selection = ref }
+            let primary = row >= 0 ? (ov.item(atRow: row) as? OutlineItem)?.ref : nil
+            if model.selectedItems != refs || model.selection != primary {
+                model.setSelection(refs, primary: primary)
+            }
         }
 
         @objc func doubleClicked(_ sender: Any?) {
@@ -221,6 +263,10 @@ struct OutlineTree: NSViewRepresentable {
                 let cell = reuse(outlineView, "size") { TextCell(alignment: .right) }
                 cell.textField?.stringValue = Fmt.bytes(ref.size)
                 return cell
+            case "modified":
+                let cell = reuse(outlineView, "modified") { TextCell(alignment: .left) }
+                cell.textField?.stringValue = Fmt.date(ref.modified)
+                return cell
             case "items":
                 let cell = reuse(outlineView, "items") { TextCell(alignment: .right) }
                 if case .dir(let d) = ref {
@@ -248,24 +294,31 @@ struct OutlineTree: NSViewRepresentable {
             guard let ov = outline, ov.clickedRow >= 0,
                   let it = ov.item(atRow: ov.clickedRow) as? OutlineItem else { return }
             let ref = it.ref
-            if model.selection != ref { model.selection = ref }
+            // Right-clicking a selected row acts on the whole selection,
+            // any other row on just that row.
+            if !model.selectedItems.contains(ref) { model.selection = ref }
+            let targets = model.selectedItems
             func add(_ title: String, _ action: @escaping () -> Void) {
                 let mi = NSMenuItem(title: title, action: #selector(runMenu(_:)), keyEquivalent: "")
                 mi.target = self
                 mi.representedObject = MenuAction(action)
                 menu.addItem(mi)
             }
-            add("Reveal in Finder") { [model] in model.reveal(ref) }
-            add("Open") { [model] in model.open(ref) }
-            add("Copy Path") { [model] in model.copyPath(ref) }
-            if ref.isDirectory {
+            add("Reveal in Finder") { [model] in model.reveal(targets) }
+            if targets.count <= 1 { add("Open") { [model] in model.open(ref) } }
+            add(targets.count > 1 ? "Copy Paths" : "Copy Path") { [model] in model.copyPaths(targets) }
+            if ref.isDirectory && targets.count <= 1 {
                 menu.addItem(.separator())
                 add("Zoom Treemap Here") { [model] in model.selection = ref; model.zoomIn() }
             }
-            if model.canDelete(ref) {
+            if model.canDelete(targets) {
                 menu.addItem(.separator())
-                add("Move to Trash…") { [model] in model.delete(ref, permanently: false) }
-                add("Delete Permanently…") { [model] in model.delete(ref, permanently: true) }
+                add(model.deleteTitle(targets, permanently: false)) { [model] in
+                    model.delete(targets, permanently: false)
+                }
+                add(model.deleteTitle(targets, permanently: true)) { [model] in
+                    model.delete(targets, permanently: true)
+                }
             }
         }
 
