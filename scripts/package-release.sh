@@ -1,12 +1,12 @@
 #!/bin/bash
 # Builds a universal DirectStat.app and packs it into a drag-to-install disk
 # image for a GitHub release.
-# Usage: scripts/package-release.sh 1.2.0
+# Usage: scripts/package-release.sh [1.2.0]   (default: the VERSION file)
 # Output: dist/DirectStat-1.2.0.dmg, its .sha256, and build/release-notes.md
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${1:?usage: scripts/package-release.sh <version, e.g. 1.2.0>}"
+VERSION="${1:-$(tr -d '[:space:]' < VERSION)}"
 if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
     echo "Version must look like 1.2.0, got: $VERSION" >&2
     exit 1

@@ -2,14 +2,13 @@
 # Builds build/DirectStat.app (release, ad-hoc signed).
 #
 # Environment:
-#   VERSION=1.2.0   app version (default: latest v* tag, or 0.0.0)
+#   VERSION=1.2.0   app version (default: the VERSION file)
 #   BUILD_NUMBER=42 build number (default: number of commits)
 #   UNIVERSAL=1     build for both Apple Silicon and Intel (slower)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-VERSION="${VERSION:-$(git describe --tags --match 'v[0-9]*' --abbrev=0 2>/dev/null | sed 's/^v//' || true)}"
-VERSION="${VERSION:-0.0.0}"
+VERSION="${VERSION:-$(tr -d '[:space:]' < VERSION)}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || echo 1)}"
 # Both go into Info.plist as-is, so only allow plain numbers.
 if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then

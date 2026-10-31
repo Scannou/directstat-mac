@@ -53,15 +53,16 @@ The app is ad-hoc signed, so macOS may ask again after a rebuild.
 
 ## Releasing
 
-Push a version tag. GitHub Actions runs the tests, builds a universal (Apple Silicon + Intel) app,
+Set the new version in the `VERSION` file, commit it, then push a matching tag. GitHub Actions checks
+that the tag matches `VERSION`, runs the tests, builds a universal (Apple Silicon + Intel) app,
 and publishes a release with `DirectStat-x.y.z.dmg` and its SHA-256:
 
 ```sh
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.2.1
+git push origin main v0.2.1
 ```
 
-To build the same disk image locally: `./scripts/package-release.sh 0.2.0` (output in `dist/`).
+To build the same disk image locally: `./scripts/package-release.sh` (output in `dist/`).
 
 ## Command line
 

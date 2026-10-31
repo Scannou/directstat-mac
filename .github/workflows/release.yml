@@ -1,6 +1,6 @@
 name: Release
 
-# Push a version tag to publish a release:
+# Set the version in the VERSION file, commit, then push a matching tag:
 #   git tag v1.2.0 && git push origin v1.2.0
 on:
   push:
@@ -20,6 +20,14 @@ jobs:
           # Don't leave the write token in .git/config while tests and the
           # build run; only the publish step gets it.
           persist-credentials: false
+
+      - name: Check version
+        run: |
+          file="$(tr -d '[:space:]' < VERSION)"
+          if [ "$file" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match VERSION file ($file)"
+            exit 1
+          fi
 
       - name: Toolchain
         run: swift --version
