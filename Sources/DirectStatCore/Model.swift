@@ -7,11 +7,15 @@ public struct FileEntry: Sendable {
     /// Bytes actually allocated on disk.
     public var size: Int64
     public var typeID: UInt16
+    /// False if the name on disk wasn't valid UTF-8 (possible on non-Mac
+    /// drives), so `name` is only an approximation of it.
+    public var exactName: Bool
 
-    public init(name: String, size: Int64, typeID: UInt16) {
+    public init(name: String, size: Int64, typeID: UInt16, exactName: Bool = true) {
         self.name = name
         self.size = size
         self.typeID = typeID
+        self.exactName = exactName
     }
 }
 
@@ -33,6 +37,8 @@ public final class DirNode: @unchecked Sendable {
     public internal(set) var unreadable = false
     /// The folder is a mount point of another volume and was not entered.
     public internal(set) var otherVolume = false
+    /// False if the name on disk wasn't valid UTF-8; see `FileEntry.exactName`.
+    public internal(set) var exactName = true
 
     public init(name: String, parent: DirNode?) {
         self.name = name
@@ -155,6 +161,13 @@ public enum ItemRef: Hashable, @unchecked Sendable {
         }
     }
 
+    /// True if `path` is exactly the item's path on disk. When false,
+    /// opening, revealing or deleting by path could hit a different item.
+    public var hasExactPath: Bool {
+        if case .file = self, file?.exactName != true { return false }
+        return containingDir.ancestors.allSatisfy(\.exactName)
+    }
+
     public var path: String {
         switch self {
         case .dir(let d): return d.path
@@ -186,6 +199,10 @@ public final class ScanResult: @unchecked Sendable {
     public let lock = NSLock()
     public private(set) var types: [TypeInfo]
     private var colorSlot: [Int]
+    /// Deleted folders stay in memory until the next scan. Child nodes point
+    /// at their parent without retaining it, so freeing a deleted folder would
+    /// leave anything still holding one of its subfolders with a dangling pointer.
+    private var removedDirs: [DirNode] = []
 
     init(root: DirNode, rootPath: String, displayName: String, duration: TimeInterval,
          unreadableCount: Int, types: [TypeInfo]) {
@@ -229,6 +246,7 @@ public final class ScanResult: @unchecked Sendable {
         case .dir(let d):
             guard let p = d.parent, let idx = p.subdirs.firstIndex(where: { $0 === d }) else { return }
             p.subdirs.remove(at: idx)
+            removedDirs.append(d)
             size = d.size; files = d.fileCount; dirs = d.dirCount + 1
             var stack = [d]
             while let n = stack.popLast() {

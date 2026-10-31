@@ -54,5 +54,5 @@ Prints the largest folders, largest files, file types and cleanup suggestions.
 | `Sources/directstat-cli` | Command-line version |
 | `Tests/DirectStatCoreTests` | `swift test` |
 
-Dev flags for the app: `--scan <path>` starts a scan on launch; `--snapshot out.png --snapshot-after 10`
-saves a picture of the window and quits.
+Dev flags, debug builds only (`swift build`, then `.build/debug/DirectStat`): `--scan <path>` starts a scan on
+launch; `--snapshot out.png --snapshot-after 10` saves a picture of the window and quits.

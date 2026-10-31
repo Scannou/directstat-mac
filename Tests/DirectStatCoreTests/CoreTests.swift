@@ -140,6 +140,66 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(HogFinder.normalize("/Users/x"), "/Users/x")
     }
 
+    func testDeleteCheckCatchesSwappedFolder() throws {
+        try write("keep/sub/target.bin", bytes: 1000)
+        try write("elsewhere/target.bin", bytes: 1000)
+        let r = try scan()
+        let keep = try XCTUnwrap(r.root.subdirs.first { $0.name == "keep" })
+        let sub = try XCTUnwrap(keep.subdirs.first)
+        let ref = ItemRef.file(sub, 0)
+        XCTAssertNil(DeleteCheck.problem(path: ref.path, isDirectory: false), "unchanged path is fine")
+        XCTAssertNotNil(DeleteCheck.problem(path: ref.path, isDirectory: true), "type changed")
+
+        // Swap keep/sub for a symlink: the same path now leads into elsewhere/.
+        let subURL = dir.appendingPathComponent("keep/sub")
+        try FileManager.default.removeItem(at: subURL)
+        try FileManager.default.createSymbolicLink(at: subURL,
+                                                   withDestinationURL: dir.appendingPathComponent("elsewhere"))
+        XCTAssertNotNil(DeleteCheck.problem(path: ref.path, isDirectory: false), "symlink in the path")
+        XCTAssertTrue(FileManager.default.fileExists(atPath: dir.appendingPathComponent("elsewhere/target.bin").path))
+
+        try FileManager.default.removeItem(at: subURL)
+        XCTAssertNotNil(DeleteCheck.problem(path: ref.path, isDirectory: false), "gone")
+    }
+
+    func testDeletedFolderKeepsChildPathsValid() throws {
+        try write("project/a/node_modules/x/index.js", bytes: 50_000)
+        let r = try scan()
+        var project: DirNode? = try XCTUnwrap(r.root.subdirs.first { $0.name == "project" })
+        let deep = try XCTUnwrap(project?.subdirs.first?.subdirs.first)
+        let before = deep.path
+        r.remove(.dir(project!))
+        project = nil
+        // Only `deep` is held here; its parents must still be alive.
+        XCTAssertEqual(deep.path, before)
+    }
+
+    func testHogRemovingUnderDeletedFolder() throws {
+        try write("p1/node_modules/a.js", bytes: 20_000)
+        try write("p2/node_modules/b.js", bytes: 20_000)
+        let r = try scan()
+        let hog = try XCTUnwrap(HogFinder.find(in: r, home: "/nonexistent", minSize: 1).first)
+        XCTAssertEqual(hog.nodes.count, 2)
+        let p1 = try XCTUnwrap(r.root.subdirs.first { $0.name == "p1" })
+        XCTAssertEqual(hog.removing(under: p1)?.nodes.count, 1)
+        XCTAssertNil(hog.removing(under: r.root))
+    }
+
+    func testNamesThatAreNotUTF8() throws {
+        let valid: [UInt8] = Array("café.txt".utf8)
+        let invalid: [UInt8] = [0x61, 0xFF, 0x62]
+        valid.withUnsafeBytes { XCTAssertTrue(DiskScanner.decodeName($0).exact) }
+        invalid.withUnsafeBytes { XCTAssertFalse(DiskScanner.decodeName($0).exact) }
+
+        let root = DirNode(name: "/x", parent: nil)
+        let bad = DirNode(name: "a\u{FFFD}b", parent: root)
+        bad.exactName = false
+        let inside = DirNode(name: "ok", parent: bad)
+        inside.files = [FileEntry(name: "f", size: 1, typeID: 0)]
+        XCTAssertFalse(ItemRef.file(inside, 0).hasExactPath, "a parent's name is inexact")
+        XCTAssertTrue(ItemRef.dir(root).hasExactPath)
+    }
+
     func testMountPointsToSkip() {
         let mounts = ["/", "/System/Volumes/Data", "/System/Volumes/Data/home", "/Volumes/NAS",
                       "/System/Volumes/VM"]

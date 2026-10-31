@@ -58,11 +58,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Needed when launched as a bare binary (swift run) instead of an .app.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+        #if DEBUG
         scheduleSnapshotIfRequested()
+        #endif
     }
 
+    #if DEBUG
     /// Dev aid: `--snapshot out.png [--snapshot-after secs]` saves the window
-    /// as a PNG after a delay, then quits. Works without screen-recording permission.
+    /// as a PNG after a delay, then quits. Debug builds only, like `--scan`.
     private func scheduleSnapshotIfRequested() {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return }
@@ -79,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
         }
     }
+    #endif
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }

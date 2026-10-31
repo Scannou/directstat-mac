@@ -53,7 +53,12 @@ public final class DiskScanner: @unchecked Sendable {
     /// separate Data volume, so scan that instead of the read-only system volume.
     public static func resolveRoot(_ path: String) -> (path: String, name: String) {
         var p = (path as NSString).expandingTildeInPath
-        p = (p as NSString).resolvingSymlinksInPath
+        // realpath, not resolvingSymlinksInPath: the latter strips "/private",
+        // which leaves a symlink ("/tmp") in the path the delete check compares.
+        if let r = realpath(p, nil) {
+            p = String(cString: r)
+            free(r)
+        }
         while p.count > 1 && p.hasSuffix("/") { p.removeLast() }
         let data = "/System/Volumes/Data"
         if p == "/" || p == data, FileManager.default.fileExists(atPath: data) {
@@ -207,9 +212,10 @@ public final class DiskScanner: @unchecked Sendable {
                 let objType = p.loadUnaligned(as: UInt32.self)
                 p += 4
 
+                let (name, exact) = DiskScanner.decodeName(nameBytes)
                 if objType == kTypeDir {
-                    let name = String(decoding: nameBytes, as: UTF8.self)
                     let child = DirNode(name: name, parent: node)
+                    child.exactName = exact
                     subdirs.append(child)
                     let childPath = base + name
                     if mountPoints.contains(childPath) {
@@ -241,8 +247,7 @@ public final class DiskScanner: @unchecked Sendable {
                 }
 
                 let typeID = DiskScanner.typeID(for: nameBytes, cache: &cache, types: types)
-                files.append(FileEntry(name: String(decoding: nameBytes, as: UTF8.self),
-                                       size: size, typeID: typeID))
+                files.append(FileEntry(name: name, size: size, typeID: typeID, exactName: exact))
                 bytes += size
             }
         }
@@ -257,6 +262,13 @@ public final class DiskScanner: @unchecked Sendable {
             current.withLock { $0 = path }
         }
         return kids
+    }
+
+    /// File names are bytes. Names that aren't valid UTF-8 (only possible on
+    /// non-Mac file systems) get replacement characters and `exact == false`.
+    static func decodeName(_ bytes: UnsafeRawBufferPointer) -> (name: String, exact: Bool) {
+        if let s = String(validating: bytes, as: UTF8.self) { return (s, true) }
+        return (String(decoding: bytes, as: UTF8.self), false)
     }
 
     /// Paths of all mounted file systems.

@@ -15,6 +15,14 @@ public struct Hog: Identifiable, @unchecked Sendable {
     public let safety: HogSafety
     public internal(set) var nodes: [DirNode]
     public var size: Int64 { nodes.reduce(0) { $0 + $1.size } }
+
+    /// This hog without the folders inside `dir` (after `dir` was deleted).
+    /// Nil when nothing is left.
+    public func removing(under dir: DirNode) -> Hog? {
+        var h = self
+        h.nodes.removeAll { $0 === dir || dir.isAncestor(of: $0) }
+        return h.nodes.isEmpty ? nil : h
+    }
 }
 
 public enum HogFinder {

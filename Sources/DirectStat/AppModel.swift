@@ -27,12 +27,16 @@ final class AppModel: ObservableObject {
 
     init() {
         volume = VolumeInfo.forPath("/")
-        // `DirectStat --scan <path>` starts scanning right away.
+        #if DEBUG
+        // Dev aid: `DirectStat --scan <path>` starts scanning right away.
+        // Debug builds only: the installed app has Full Disk Access, and any
+        // local process could launch it with arguments.
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--scan"), i + 1 < args.count {
             let path = args[i + 1]
             DispatchQueue.main.async { self.startScan(path) }
         }
+        #endif
     }
 
     var treemapRoot: DirNode? { zoomRoot ?? result?.root }
@@ -140,14 +144,17 @@ final class AppModel: ObservableObject {
     // MARK: Actions
 
     func reveal(_ ref: ItemRef) {
+        guard ref.hasExactPath else { return }
         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: ref.path)])
     }
 
     func open(_ ref: ItemRef) {
+        guard ref.hasExactPath else { return }
         NSWorkspace.shared.open(URL(fileURLWithPath: ref.path))
     }
 
     func copyPath(_ ref: ItemRef) {
+        guard ref.hasExactPath else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(Paths.withoutDataVolume(ref.path), forType: .string)
     }
@@ -159,7 +166,7 @@ final class AppModel: ObservableObject {
 
     func canDelete(_ ref: ItemRef?) -> Bool {
         guard let ref, let result, busyMessage == nil else { return false }
-        return ref != .dir(result.root)
+        return ref != .dir(result.root) && ref.hasExactPath
     }
 
     /// Asks for confirmation, then moves the item to the Trash or deletes it.
@@ -185,16 +192,20 @@ final class AppModel: ObservableObject {
         guard alert.runModal() == .alertFirstButtonReturn else { return }
 
         busyMessage = permanent ? "Deleting \(name)…" : "Moving \(name) to the Trash…"
+        let isDirectory = ref.isDirectory
         Task.detached(priority: .userInitiated) {
             let url = URL(fileURLWithPath: path)
             let failure: String?
             do {
-                if permanent {
+                if let problem = DeleteCheck.problem(path: path, isDirectory: isDirectory) {
+                    failure = problem
+                } else if permanent {
                     try FileManager.default.removeItem(at: url)
+                    failure = nil
                 } else {
                     try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+                    failure = nil
                 }
-                failure = nil
             } catch {
                 failure = error.localizedDescription
             }
@@ -228,6 +239,9 @@ final class AppModel: ObservableObject {
             if d === changed { return true }
             if let removedDir, d === removedDir || removedDir.isAncestor(of: d) { return true }
             return false
+        }
+        if let removedDir {
+            hogs = hogs.compactMap { $0.removing(under: removedDir) }
         }
         result.remove(ref)
         revision += 1
