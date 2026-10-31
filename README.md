@@ -1,3 +1,5 @@
+<img src="docs/icon.png" width="128" alt="DirectStat icon">
+
 # DirectStat
 
 A disk usage viewer for macOS: see which folders fill your disk and what is safe to delete.
