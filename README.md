@@ -5,7 +5,7 @@
 A disk usage viewer for macOS: see which folders fill your disk and what is safe to delete.
 Native SwiftUI + AppKit, no dependencies.
 
-![DirectStat showing a folder tree sorted by size, cleanup suggestions, and a treemap](docs/screenshot.png)
+![DirectStat showing a folder tree sorted by size with modification dates, cleanup suggestions, and a treemap](docs/screenshot.png)
 
 ## Why
 
