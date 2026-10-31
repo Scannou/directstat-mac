@@ -29,22 +29,28 @@ struct OutlineTree: NSViewRepresentable {
         ov.allowsMultipleSelection = false
         ov.autoresizesOutlineColumn = false
         ov.indentationPerLevel = 14
-        ov.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        // Extra width is shared by Name and the % bar; Size and Items stay put.
+        ov.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
 
-        func column(_ id: String, _ title: String, _ width: CGFloat, min: CGFloat, right: Bool = false) -> NSTableColumn {
+        func column(_ id: String, _ title: String, _ width: CGFloat, min: CGFloat,
+                    right: Bool = false, grows: Bool = true) -> NSTableColumn {
             let c = NSTableColumn(identifier: .init(id))
             c.title = title
             c.width = width
             c.minWidth = min
+            c.resizingMask = grows ? [.autoresizingMask, .userResizingMask] : .userResizingMask
             if right { c.headerCell.alignment = .right }
             return c
         }
-        let name = column("name", "Name", 340, min: 160)
+        let name = column("name", "Name", 260, min: 160)
         ov.addTableColumn(name)
         ov.outlineTableColumn = name
-        ov.addTableColumn(column("bar", "% of Parent", 130, min: 80))
-        ov.addTableColumn(column("size", "Size", 90, min: 70, right: true))
-        ov.addTableColumn(column("items", "Items", 80, min: 60, right: true))
+        ov.addTableColumn(column("bar", "% of Parent", 300, min: 80))
+        ov.addTableColumn(column("size", "Size", 95, min: 70, right: true, grows: false))
+        ov.addTableColumn(column("items", "Items", 85, min: 60, right: true, grows: false))
+        // Remember column widths the user drags between launches.
+        ov.autosaveName = "DirectStat.FolderTree"
+        ov.autosaveTableColumns = true
 
         ov.dataSource = context.coordinator
         ov.delegate = context.coordinator
