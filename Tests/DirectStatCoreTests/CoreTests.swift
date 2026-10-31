@@ -140,6 +140,18 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(HogFinder.normalize("/Users/x"), "/Users/x")
     }
 
+    func testMountPointsToSkip() {
+        let mounts = ["/", "/System/Volumes/Data", "/System/Volumes/Data/home", "/Volumes/NAS",
+                      "/System/Volumes/VM"]
+        let skip = DiskScanner.mountPointsToSkip(mounts: mounts, root: "/System/Volumes/Data")
+        XCTAssertTrue(skip.contains("/System/Volumes/Data/home"), "automatic /home mount")
+        XCTAssertTrue(skip.contains("/System/Volumes/Data/Volumes/NAS"), "NAS as seen from the Data volume")
+        XCTAssertFalse(skip.contains("/System/Volumes/Data"), "never skip the scanned volume")
+        // Scanning the NAS itself must not skip its own root.
+        let nas = DiskScanner.mountPointsToSkip(mounts: mounts, root: "/Volumes/NAS/Music")
+        XCTAssertFalse(nas.contains("/Volumes/NAS"))
+    }
+
     func testDisplayPaths() {
         let home = "/Users/x"
         XCTAssertEqual(Paths.display("/System/Volumes/Data/Users/x/Downloads", home: home), "~/Downloads")

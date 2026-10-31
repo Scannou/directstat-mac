@@ -305,7 +305,7 @@ public struct VolumeInfo: Sendable {
 
 /// Turns scan paths into the paths people know.
 public enum Paths {
-    static let dataVolume = "/System/Volumes/Data"
+    public static let dataVolume = "/System/Volumes/Data"
 
     /// "/System/Volumes/Data/Users/x" -> "/Users/x". Both point at the same
     /// place; the short one is what Finder and Terminal show.

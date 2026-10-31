@@ -37,6 +37,9 @@ public final class DiskScanner: @unchecked Sendable {
     private let queueBox = Mutex<WorkQueue?>(nil)
     private let seenHardLinks = Mutex<Set<UInt64>>([])
     private var rootDev: dev_t = 0
+    /// Where other volumes are mounted. Skipped without opening them: opening
+    /// a network mount (even macOS's automatic /home) triggers a permission prompt.
+    private var mountPoints: Set<String> = []
 
     public init(path: String, threadCount: Int? = nil, stayOnVolume: Bool = true) {
         let resolved = DiskScanner.resolveRoot(path)
@@ -84,6 +87,9 @@ public final class DiskScanner: @unchecked Sendable {
         let types = TypeTable()
         if lstat(rootPath, &st) == 0 {
             rootDev = st.st_dev
+            if stayOnVolume {
+                mountPoints = DiskScanner.mountPointsToSkip(mounts: DiskScanner.currentMounts(), root: rootPath)
+            }
             let queue = WorkQueue(root: Job(node: root, path: rootPath))
             queueBox.withLock { $0 = queue }
             if cancelled.load(ordering: .relaxed) { return nil }
@@ -205,7 +211,12 @@ public final class DiskScanner: @unchecked Sendable {
                     let name = String(decoding: nameBytes, as: UTF8.self)
                     let child = DirNode(name: name, parent: node)
                     subdirs.append(child)
-                    kids.append(Job(node: child, path: base + name))
+                    let childPath = base + name
+                    if mountPoints.contains(childPath) {
+                        child.otherVolume = true
+                    } else {
+                        kids.append(Job(node: child, path: childPath))
+                    }
                     continue
                 }
 
@@ -246,6 +257,33 @@ public final class DiskScanner: @unchecked Sendable {
             current.withLock { $0 = path }
         }
         return kids
+    }
+
+    /// Paths of all mounted file systems.
+    static func currentMounts() -> [String] {
+        var list: UnsafeMutablePointer<statfs>?
+        let n = getmntinfo(&list, MNT_NOWAIT)
+        guard n > 0, let list else { return [] }
+        return (0..<Int(n)).map { i in
+            withUnsafeBytes(of: list[i].f_mntonname) { raw in
+                String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+            }
+        }
+    }
+
+    /// Mount points inside the scan that belong to other volumes, in every
+    /// spelling the scan may meet ("/Volumes/X" and "/System/Volumes/Data/Volumes/X").
+    static func mountPointsToSkip(mounts: [String], root: String) -> Set<String> {
+        let data = Paths.dataVolume
+        var out: Set<String> = []
+        for m in mounts where m != "/" {
+            // The volume being scanned, or one that contains it.
+            if root == m || root.hasPrefix(m + "/") { continue }
+            out.insert(m)
+            out.insert(Paths.withoutDataVolume(m))
+            if !m.hasPrefix(data + "/") { out.insert(data + m) }
+        }
+        return out
     }
 
     /// Lowercased extension after the last dot, e.g. "photo.JPG" -> "jpg".
